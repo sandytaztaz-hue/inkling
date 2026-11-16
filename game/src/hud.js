@@ -78,10 +78,33 @@ export class Hud {
     ctx.fillText(`● ${game.orbsGot}/${game.level.orbs.length}`, 990, 35);
     ctx.fillStyle = COLORS.paperWhite;
     ctx.fillText(`⏱ ${formatTime(game.levelTime)}`, 1090, 35);
+    // Deaths this run: the King and the spikes both cost Pip dearly.
+    ctx.fillStyle = COLORS.danger;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(`☠ ${game.deaths ?? 0}`, 1160, 35);
     ctx.fillStyle = COLORS.ink;
     let livesText = '';
     for (let i = 0; i < game.lives; i++) livesText += '● ';
     ctx.fillText(livesText.trim(), 1262, 35);
+    // Minimap strip: the whole level at a glance — platforms, portal,
+    // keys, fountains, boats, the King, and Pip himself.
+    this.drawMinimap(ctx, game);
+    // Objective banner: what Pip has to do on this level, right under
+    // the bar, so the goal reads even on a still screenshot.
+    if (game.screen === 'play') {
+      const keysLeft = game.keysLeft();
+      const objective =
+        keysLeft > 0
+          ? (game.level.chapter === 3 ? 'PAINT THE LAST PAGE — ' : 'FIND THE KEYS — ') +
+            `${keysLeft} KEY${keysLeft > 1 ? 'S' : ''} LEFT`
+          : 'REACH THE EXIT PORTAL';
+      ctx.fillStyle = (game.level.chapter ?? 0) === 3 ? COLORS.yellow : COLORS.paperWhite;
+      ctx.font = 'bold 17px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(objective, VIEW.width / 2, 120);
+    }
+    // Event log: the last two things that happened, bottom-left.
+    this.drawEventLog(ctx, game);
     // Hint line for the first seconds of a level.
     if (game.levelTime < 6 && game.screen === 'play') {
       ctx.fillStyle = COLORS.yellow;
@@ -96,6 +119,91 @@ export class Hud {
       ctx.textAlign = 'center';
       ctx.fillText('LOW INK — grab an orb!', VIEW.width / 2, 118);
     }
+  }
+
+  /** The minimap strip: the whole level, scaled, along the bottom. */
+  drawMinimap(ctx, game) {
+    const mx = 440;
+    const my = 690;
+    const mw = 400;
+    const mh = 22;
+    const sx = (x) => mx + (x / VIEW.width) * mw;
+    const sy = (y) => my + (y / VIEW.height) * mh;
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 7, 18, 0.66)';
+    ctx.fillRect(mx - 8, my - 4, mw + 16, mh + 8);
+    ctx.strokeStyle = 'rgba(244, 239, 230, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 8, my - 4, mw + 16, mh + 8);
+    // Platforms and crumble blocks.
+    ctx.fillStyle = 'rgba(244, 239, 230, 0.55)';
+    for (const p of game.level.platforms) ctx.fillRect(sx(p.x), sy(p.y), Math.max(2, (p.w / VIEW.width) * mw), 3);
+    if (game.hazards) {
+      for (const c of game.hazards.crumbles) {
+        if (!c.gone) ctx.fillRect(sx(c.x), sy(c.y), Math.max(2, (c.w / VIEW.width) * mw), 3);
+      }
+    }
+    // Fountains (gold squares), boats (gold ticks), rain (gold dashes).
+    ctx.fillStyle = COLORS.yellow;
+    if (game.fountains) {
+      for (const f of game.fountains.pools) ctx.fillRect(sx(f.x), sy(f.y) - 2, 5, 5);
+    }
+    if (game.boats) {
+      for (const b of game.boats.boats) ctx.fillRect(sx(b.x), sy(b.y) - 2, Math.max(4, (b.w / VIEW.width) * mw), 3);
+    }
+    // Keys still out, as gold diamonds.
+    game.level.keys.forEach((key, i) => {
+      if (game.keysTaken[i]) return;
+      ctx.save();
+      ctx.translate(sx(key.x), sy(key.y));
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-3, -3, 6, 6);
+      ctx.restore();
+    });
+    // The portal: a green ring.
+    const portal = game.level.portal;
+    ctx.strokeStyle = COLORS.portal;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(sx(portal.x + 27), sy(portal.y + 39), 5, 0, Math.PI * 2);
+    ctx.stroke();
+    // The Eraser King: a purple square with a gold crown dot.
+    if (game.king) {
+      for (const k of game.king.kings) {
+        ctx.fillStyle = COLORS.eraser;
+        ctx.fillRect(sx(k.x) - 4, sy(k.y) - 4, 8, 8);
+        ctx.fillStyle = COLORS.yellow;
+        ctx.fillRect(sx(k.x) - 2, sy(k.y) - 7, 4, 3);
+      }
+    }
+    // Pip: a bright cyan dot, always visible.
+    ctx.fillStyle = COLORS.ink;
+    ctx.beginPath();
+    ctx.arc(sx(game.player.x), sy(game.player.y), 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLORS.paperWhite;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('MAP', mx - 8, my - 10);
+    ctx.restore();
+  }
+
+  /** The event log: the last two things that happened, bottom-left. */
+  drawEventLog(ctx, game) {
+    const log = game.eventLog ?? [];
+    if (log.length === 0) return;
+    ctx.save();
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'left';
+    const recent = log.slice(-2);
+    recent.forEach((entry, i) => {
+      const age = (game.titleTime ?? 0) - entry.at;
+      if (age > 5) return;
+      ctx.globalAlpha = Math.max(0.25, 1 - age / 5);
+      ctx.fillStyle = entry.color ?? COLORS.yellow;
+      ctx.fillText(entry.text, 18, 664 + i * 22);
+    });
+    ctx.restore();
   }
 
   /** Chapter + level name card shown on entry to a level. */
@@ -120,6 +228,12 @@ export class Hud {
       ctx.font = '22px sans-serif';
       ctx.fillText(ch.story, VIEW.width / 2, 338);
     }
+    // The Eraser King speaks when Pip first meets him (level 25).
+    if (game.level.kingLine) {
+      ctx.fillStyle = COLORS.eraser;
+      ctx.font = 'italic bold 22px sans-serif';
+      ctx.fillText(`“${game.level.kingLine}” — THE ERASER KING`, VIEW.width / 2, 338);
+    }
     ctx.restore();
   }
 
@@ -140,44 +254,46 @@ export class Hud {
       ctx.strokeStyle = s.color;
       ctx.lineWidth = 14;
       ctx.beginPath();
-      ctx.moveTo(s.x0, 625);
-      ctx.quadraticCurveTo((s.x0 + s.x1) / 2, 605, s.x1, 625);
+      ctx.moveTo(s.x0, 662);
+      ctx.quadraticCurveTo((s.x0 + s.x1) / 2, 642, s.x1, 662);
       ctx.stroke();
     }
     ctx.restore();
     ctx.fillStyle = COLORS.ink;
     ctx.beginPath();
-    ctx.arc(250, 594, 26, 0, Math.PI * 2);
+    ctx.arc(250, 631, 26, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(242, 586, 7, 0, Math.PI * 2);
-    ctx.arc(260, 586, 7, 0, Math.PI * 2);
+    ctx.arc(242, 623, 7, 0, Math.PI * 2);
+    ctx.arc(260, 623, 7, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#10222e';
     ctx.beginPath();
-    ctx.arc(243, 586, 3.5, 0, Math.PI * 2);
-    ctx.arc(261, 586, 3.5, 0, Math.PI * 2);
+    ctx.arc(243, 623, 3.5, 0, Math.PI * 2);
+    ctx.arc(261, 623, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     title(ctx, 'INKLING', 168, 92, COLORS.ink);
-    line(ctx, 'PAINT the path. Mind your ink.', 212, 28, COLORS.paperWhite);
-    line(ctx, 'You are Pip, a little ink drop on dark paper. Paint platforms with the mouse', 258, 20);
-    line(ctx, 'to reach the green EXIT portal. Paint dries and crumbles — amber bounces, violet lasts.', 284, 20);
-    // The three chapters, with a key to jump straight to one.
-    line(ctx, '1 · THE PAPER SEA — first strokes, wind and springs', 326, 20, CHAPTERS[0].accent);
-    line(ctx, '2 · THE DRY WIND — keys, colours, thin ice', 352, 20, CHAPTERS[1].accent);
+    line(ctx, 'PAINT YOUR WAY HOME: THE LAST PAGE', 206, 26, COLORS.yellow);
+    line(ctx, 'PAINT the path. Mind your ink.', 238, 28, COLORS.paperWhite);
+    line(ctx, 'You are Pip, a little ink drop on dark paper. Paint platforms with the mouse', 272, 20);
+    line(ctx, 'to reach the green EXIT portal. Paint dries and crumbles — amber bounces, violet lasts.', 296, 20);
+    // The four chapters, with a key to jump straight to one.
+    line(ctx, '1 · THE PAPER SEA — first strokes, wind and springs', 330, 20, CHAPTERS[0].accent);
+    line(ctx, '2 · THE DRY WIND — keys, colours, thin ice', 354, 20, CHAPTERS[1].accent);
     line(ctx, '3 · HOME — everything at once, then home', 378, 20, CHAPTERS[2].accent);
-    line(ctx, '20 levels · 3 chapters · 3 lives each', 404, 20, COLORS.paperWhite);
-    panel(ctx, 340, 428, 600, 118);
-    line(ctx, 'MOVE  A / D  or  ← →        JUMP  W / ↑ / SPACE', 462, 20, COLORS.paperWhite);
-    line(ctx, 'PAINT  hold mouse and drag        R restart    P pause    M mute', 492, 20, COLORS.paperWhite);
-    line(ctx, 'BRUSH  1 cyan · 2 AMBER bounce · 3 VIOLET slow-dry', 522, 20, COLORS.yellow);
+    line(ctx, '4 · THE LAST PAGE — fountains, paper boats, THE ERASER KING', 402, 20, CHAPTERS[3].accent);
+    line(ctx, '27 levels · 4 chapters · 3 lives each', 428, 20, COLORS.paperWhite);
+    panel(ctx, 340, 452, 600, 118);
+    line(ctx, 'MOVE  A / D  or  ← →        JUMP  W / ↑ / SPACE', 486, 20, COLORS.paperWhite);
+    line(ctx, 'PAINT  hold mouse and drag        R restart    P pause    M mute', 516, 20, COLORS.paperWhite);
+    line(ctx, 'BRUSH  1 cyan · 2 AMBER bounce · 3 VIOLET slow-dry', 546, 20, COLORS.yellow);
     const best = game.bestTotal;
-    line(ctx, best ? `BEST TOTAL TIME: ${formatTime(best)}` : 'No run finished yet — be the first to paint home.', 576, 20, COLORS.paperWhite);
-    line(ctx, 'Press 1 / 2 / 3 to start at a chapter — or CLICK / ENTER for level 1.', 606, 20, COLORS.ink);
+    line(ctx, best ? `BEST TOTAL TIME: ${formatTime(best)}` : 'No run finished yet — be the first to paint home.', 600, 20, COLORS.paperWhite);
+    line(ctx, 'Press 1 / 2 / 3 / 4 to start at a chapter — or CLICK / ENTER for level 1.', 630, 20, COLORS.ink);
     const blink = Math.floor(game.titleTime * 2) % 2 === 0;
-    if (blink) line(ctx, '— CLICK or press ENTER to play —', 662, 26, COLORS.ink);
+    if (blink) line(ctx, '— CLICK or press ENTER to play —', 690, 26, COLORS.ink);
   }
 
   drawLevelComplete(ctx, game) {
@@ -192,6 +308,7 @@ export class Hud {
       line(ctx, `Keys: ${game.keysGot}/${game.level.keys.length}`, 424, 24);
     }
     line(ctx, `Ink left: ${Math.ceil(game.ink)}  —  bonus +${game.lastInkBonus}`, 458, 24);
+    line(ctx, `Deaths this run: ${game.deaths ?? 0}`, 484, 24, COLORS.danger);
     line(ctx, `Level score: ${game.lastLevelScore}      Total: ${game.totalScore}`, 498, 24, COLORS.yellow);
     const stars = '★'.repeat(game.lastStars) + '☆'.repeat(3 - game.lastStars);
     line(ctx, stars, 540, 34, COLORS.yellow);
@@ -221,10 +338,13 @@ export class Hud {
     line(ctx, `Orbs collected: ${game.totalOrbs}/${game.totalOrbsPossible}`, 355, 24);
     line(ctx, `Stars: ${game.totalStars}/${LEVEL_COUNT * 3}  ★`, 395, 24, COLORS.yellow);
     line(ctx, `FINAL SCORE: ${game.totalScore}`, 440, 30, COLORS.yellow);
-    if (game.newBest) line(ctx, '★ NEW BEST TOTAL TIME! ★', 482, 26, COLORS.yellow);
-    else line(ctx, `Best total time: ${formatTime(game.bestTotal)}`, 482, 24);
+    // Pip's farewell note to the player — the last page, signed.
+    line(ctx, '“Dear painter — you carried me home, one stroke at a time.”', 478, 20, COLORS.paperWhite);
+    line(ctx, '“The King can erase the road, but never the hand that paints it. — Pip”', 504, 20, COLORS.textDim);
+    if (game.newBest) line(ctx, '★ NEW BEST TOTAL TIME! ★', 532, 26, COLORS.yellow);
+    else line(ctx, `Best total time: ${formatTime(game.bestTotal)}`, 532, 24);
     const blink = Math.floor(game.titleTime * 2) % 2 === 0;
-    if (blink) line(ctx, '— Press R or CLICK to paint it all again —', 540, 24, COLORS.ink);
+    if (blink) line(ctx, '— Press R or CLICK to paint it all again —', 566, 24, COLORS.ink);
   }
 
   drawPaused(ctx, game) {

@@ -10,7 +10,7 @@ const PLAY_SECONDS = 3.5;
 const STEP_LIMIT = 60 * 120;
 const VICTORY_LIMIT = 60 * 480;
 
-/** Is there solid ground (platform, crumble block or wet paint) near (x, y)? */
+/** Is there solid ground (platform, crumble block, boat, rain, wet paint) near (x, y)? */
 function solidAt(game, x, y) {
   for (const p of game.level.platforms) {
     if (x >= p.x && x <= p.x + p.w && p.y >= y - 6 && p.y <= y + 50) return true;
@@ -18,6 +18,14 @@ function solidAt(game, x, y) {
   for (const c of game.hazards.crumbles) {
     if (c.gone) continue;
     if (x >= c.x && x <= c.x + c.w && c.y >= y - 6 && c.y <= y + 50) return true;
+  }
+  // Paper boats count as ground while Pip could stand on one's deck.
+  for (const b of game.boats?.boats ?? []) {
+    if (x >= b.x && x <= b.x + b.w && b.y >= y - 6 && b.y <= y + 50) return true;
+  }
+  // Golden rain platforms count only while the shower is wet.
+  for (const s of game.hazards.rain?.solidNow(game.levelTime) ?? []) {
+    if (x >= s.x && x <= s.x + s.w && s.y >= y - 6 && s.y <= y + 50) return true;
   }
   for (const stroke of game.paint.strokes) {
     for (const pt of stroke.points) {
@@ -52,10 +60,13 @@ function spikeAhead(game) {
 /**
  * Steer like a careful player: paint a bridge whenever the ground runs out
  * ahead, walk right, hop up ledges and over spikes, wait out erasers, and
- * bounce off spring pads when the portal sits above Pip. Levels with an
- * apBounce step (Springboard) run a scripted amber bounce instead: paint
- * the amber pad, stand on it, jump straight up onto it, and drift right
- * off the bounce onto the high ledge.
+ * bounce off spring pads when the portal sits above Pip. Chapter 4 adds
+ * three habits: drink at a fountain when the bottle runs low, wait on a
+ * paper boat until it reaches the far side, and jump clean over the
+ * Eraser King when he looms ahead. Levels with an apBounce step
+ * (Springboard) run a scripted amber bounce instead: paint the amber pad,
+ * stand on it, jump straight up onto it, and drift right off the bounce
+ * onto the high ledge.
  */
 function autopilot(game) {
   const player = game.player;
@@ -67,17 +78,35 @@ function autopilot(game) {
     ap.level = game.levelIndex;
     ap.phase = 'walk';
     ap.paintT = 0;
+    ap.paintLen = 40;
+    ap.noPaintUntil = 0;
     ap.jumpT = 0;
     ap.bounceTries = 0;
     ap.jumpTime = -1;
   }
   if (ap.phase === 'paint') {
-    const t = Math.min(1, ap.paintT / 40);
+    const t = Math.min(1, ap.paintT / (ap.paintLen ?? 40));
     input.setMouse(ap.x0 + (ap.x1 - ap.x0) * t, ap.y, true);
     input.setKey('KeyD', false);
     input.setKey('Space', false);
     ap.paintT += 1;
-    if (ap.paintT > 40) {
+    // Chapter 4: never stand still painting while the King closes in.
+    // A chasing King covers 130 px a second; abort the stroke the moment
+    // he is within 120 px, and do not start another stroke for 0.6 s —
+    // walk instead, so Pip outruns him. Without the cooldown, the abort
+    // re-triggers on the very next tick and Pip freezes in place, still
+    // painting nothing, while the King walks up and touches him. (Round 4
+    // lesson: two L26 deaths from exactly that frozen paint-abort loop —
+    // one with the King walking up to a frozen Pip, one with the King
+    // clamped at his patrol end 53 px behind a Pip who could not paint.)
+    const kingNear = game.king?.king;
+    if (kingNear && Math.hypot(kingNear.x - player.x, kingNear.y - player.y) < 120) {
+      input.setMouse(ap.x1, ap.y, false);
+      ap.phase = 'walk';
+      ap.noPaintUntil = game.levelTime + 0.6;
+      return;
+    }
+    if (ap.paintT > (ap.paintLen ?? 40)) {
       input.setMouse(ap.x1, ap.y, false);
       ap.phase = 'walk';
     }
@@ -205,24 +234,123 @@ function autopilot(game) {
     ap.waitSince = null;
   }
   const waitTooLong = ap.waitSince != null && game.levelTime - ap.waitSince > 2.5;
+  // Chapter 4: drink at a fountain when the bottle is low. Standing in
+  // the glow refills 25 ink a second; linger until the bottle is nearly
+  // full (or 2.5 s, whichever comes first), then paint on.
+  if (game.fountainRefill && game.ink < 85) {
+    if (ap.fountainSince == null) ap.fountainSince = game.levelTime;
+    if (game.levelTime - ap.fountainSince < 2.5) {
+      input.setKey('KeyD', false);
+      input.setKey('KeyA', false);
+      input.setKey('Space', false);
+      return;
+    }
+  } else {
+    ap.fountainSince = null;
+  }
+  // Chapter 4: riding a paper boat, wait for the far side. Stepping off
+  // early means falling in the river; the boat turns at its far end, and
+  // the far platform is solid ground from the boat's right edge.
+  const ridingBoat = player.groundPlatform && game.boats && game.boats.boats.includes(player.groundPlatform);
+  if (ridingBoat) {
+    const boat = player.groundPlatform;
+    const farEdge = boat.x + boat.w;
+    // The far platform sits a little above the deck, so check the ground
+    // a touch above deck height, not at it.
+    if (!solidAt(game, farEdge + 30, boat.y - 24) && farEdge < 1240) {
+      input.setKey('KeyD', false);
+      input.setKey('KeyA', false);
+      input.setKey('Space', false);
+      return;
+    }
+  }
   input.setKey('KeyD', !nearEraser || waitTooLong);
   input.setKey('KeyA', false);
   const feet = player.bottom;
   const portalX = game.level.portal.x;
   const farFromPortal = portalX - player.x > 120;
-  if (player.grounded && farFromPortal && !solidAt(game, player.x + 70, feet)) {
+  // Chapter 4: a paper boat is the only way across — walk to the very
+  // edge, then wait for the boat to come to its left end before stepping
+  // off onto it. (Round 4 lesson: Pip walked off a bridge end at x714
+  // while the boat was already sailing away, and fell in the river — and
+  // the first version of this wait stalled, because Pip stopped 70 px
+  // short of the edge, where the boat's left end never reaches. Pip must
+  // wait AT the edge, and step off only when the boat is at its left end:
+  // he lands about 40 px past the edge, inside the deck.)
+  const boatAhead = (game.boats?.boats ?? []).find(
+    (b) => b.x + b.w > player.x + 40 && b.x < player.x + 280 && Math.abs(b.y - feet) < 60,
+  );
+  if (player.grounded && farFromPortal && !solidAt(game, player.x + 70, feet) && boatAhead) {
+    if (solidAt(game, player.x + 30, feet)) {
+      // Still ground under the near step: walk to the very edge first.
+      input.setKey('KeyD', true);
+      input.setKey('KeyA', false);
+      input.setKey('Space', false);
+      return;
+    }
+    if (boatAhead.x <= 390) {
+      // The boat is at its left end, under the step-off point: board it.
+      input.setKey('KeyD', true);
+      input.setKey('KeyA', false);
+      input.setKey('Space', false);
+      return;
+    }
+    // The boat is away: wait at the edge for it to come back.
+    input.setKey('KeyD', false);
+    input.setKey('KeyA', false);
+    input.setKey('Space', false);
+    return;
+  }
+  // Chapter 4: when the King is chasing close behind, paint in SHORT
+  // bursts — a 130 px stroke in a third of a second, then run. Pip never
+  // stops long enough for the King to reach him, and never walks off a
+  // bridge end with no paint: each burst buys the next stretch of road.
+  // Each burst-and-run cycle gains ~30 px of separation, so the chase
+  // breaks after two or three bursts and normal painting resumes.
+  const king = game.king?.king;
+  const kingChasingNear =
+    king && king.chasing && Math.hypot(king.x - player.x, king.y - player.y) < 260;
+  if (
+    player.grounded &&
+    farFromPortal &&
+    !solidAt(game, player.x + 70, feet) &&
+    game.levelTime >= (ap.noPaintUntil ?? 0)
+  ) {
     ap.phase = 'paint';
     ap.paintT = 0;
+    ap.paintLen = kingChasingNear ? 20 : 40;
     ap.x0 = player.x + 10;
-    ap.x1 = player.x + 240;
+    ap.x1 = player.x + (kingChasingNear ? 130 : 240);
     ap.y = feet;
     input.setKey('KeyD', false);
+    return;
+  }
+  // Chapter 4: in the no-paint cooldown after a King abort, the ground
+  // may run out under Pip's feet — jump right instead of painting. The
+  // jump carries him ~216 px, over the rest of the gap and onto the far
+  // side, instead of walking off the bridge end while he cannot paint.
+  if (
+    player.grounded &&
+    farFromPortal &&
+    !solidAt(game, player.x + 70, feet) &&
+    game.levelTime < (ap.noPaintUntil ?? 0)
+  ) {
+    input.setKey('KeyD', true);
+    input.setKey('KeyA', false);
+    input.setKey('Space', true);
+    ap.jumpT = 5;
     return;
   }
   if (ap.jumpT > 0) {
     input.setKey('Space', true);
     ap.jumpT -= 1;
-  } else if (higherLedgeAhead(game) || spikeAhead(game)) {
+  } else if (higherLedgeAhead(game) || spikeAhead(game) || game.king?.kingAhead(player, 120)) {
+    // The King is just ahead: jump clean over his crown. The jump is
+    // timed to 120 px, not further: a King patrolling AWAY from Pip is
+    // still moving right when Pip passes over him, so a jump started
+    // from 140 px meets him on the way down, at his own height — a jump
+    // from 120 px passes over him while Pip is still high. (Round 4
+    // lesson: three identical King deaths at y~550, all from 140 px.)
     input.setKey('Space', true);
     ap.jumpT = 5;
   } else {
@@ -258,8 +386,9 @@ function simulate(game, limit, stopWhen) {
         event: 'death',
         level: game.levelIndex + 1,
         lives: game.lives,
-        x: Math.round(game.player.x),
-        y: Math.round(game.player.y),
+        x: game.lastDeath ? game.lastDeath.x : Math.round(game.player.x),
+        y: game.lastDeath ? game.lastDeath.y : Math.round(game.player.y),
+        cause: game.lastDeath ? game.lastDeath.cause : '?',
       });
     }
     prevLives = game.lives;
@@ -277,7 +406,7 @@ function simulate(game, limit, stopWhen) {
       });
       break;
     }
-    if (i % 120 === 0 && game.shotLog.length < 900) {
+    if (i % 6 === 0 && game.shotLog.length < 4000) {
       game.shotLog.push({
         t: +(i / 60).toFixed(1),
         screen: game.screen,
@@ -286,6 +415,9 @@ function simulate(game, limit, stopWhen) {
         y: Math.round(game.player.y),
         lives: game.lives,
         ink: Math.round(game.ink),
+        king: game.king?.king ? { x: Math.round(game.king.king.x), c: game.king.king.chasing } : null,
+        ap: game.__ap?.phase,
+        pt: game.__ap?.paintT,
       });
     }
   }
@@ -293,13 +425,18 @@ function simulate(game, limit, stopWhen) {
 }
 
 /**
- * Set the game to the named scene (start, play, complete or victory; any
- * other name is start) by playing it forward from a fresh run.
+ * Set the game to the named scene (start, play, complete, victory, action,
+ * fountain or king; any other name is start) by playing it forward from a
+ * fresh run. The Chapter 4 scenes are staged on their own levels:
+ * action = level 25 with the King, fountain = level 23 on a paper boat,
+ * king = level 27, the finale chase. Every scene is real play — the
+ * autopilot (or a small input driver) steers the real game, never a
+ * hand-posed frame.
  */
 export function stageShot(name, game) {
   game.reset(game.seed);
-  game.__ap = { phase: 'walk', paintT: 0, x0: 0, x1: 0, y: 0, jumpT: 0, level: -1, bounceTries: 0, jumpTime: -1, waitSince: null };
-  if (name !== 'play' && name !== 'complete' && name !== 'victory') {
+  game.__ap = { phase: 'walk', paintT: 0, x0: 0, x1: 0, y: 0, jumpT: 0, level: -1, bounceTries: 0, jumpTime: -1, waitSince: null, fountainSince: null };
+  if (name !== 'play' && name !== 'complete' && name !== 'victory' && name !== 'action' && name !== 'fountain' && name !== 'king') {
     for (let i = 0; i < START_SECONDS / STEP; i++) game.step(STEP);
     return;
   }
@@ -313,9 +450,147 @@ export function stageShot(name, game) {
     for (let i = 0; i < 10; i++) game.step(STEP);
     return;
   }
-  // victory: play the whole game for real, level 1 through level 20, so the
+  if (name === 'action') {
+    stageActionShot(game);
+    return;
+  }
+  if (name === 'fountain') {
+    stageFountainShot(game);
+    return;
+  }
+  if (name === 'king') {
+    stageKingShot(game);
+    return;
+  }
+  // victory: play the whole game for real, level 1 through level 27, so the
   // victory screen shows the true total time, orbs and score of a real run.
   game.startGame();
   simulate(game, VICTORY_LIMIT, (g) => g.screen === 'victory');
   for (let i = 0; i < 10; i++) game.step(STEP);
+}
+
+/** Play forward to a level, then hand over to a scene driver. */
+function reachLevel(game, targetIndex) {
+  game.startChapter(3);
+  simulate(game, STEP_LIMIT, (g) => g.levelIndex === targetIndex && g.screen === 'play');
+}
+
+/**
+ * Shot 0 — level 25, "The Eraser King Wakes": Pip MID-AIR over a fresh
+ * golden bridge while the Eraser King chases behind him. The plain
+ * autopilot plays the level; the frame is caught at the top of Pip's
+ * jump over the King, with the bridge he just painted below him, the
+ * fountain glow on the left bank, and the full HUD (minimap, objective
+ * banner, event log) in frame. (Round 4 lesson: the first version of
+ * this staging jumped WHILE painting — Pip jumped straight up out of a
+ * paint stroke onto the King waiting below him, and died three times.
+ * The jump over the King is the shot; the bridge below him is the paint.)
+ */
+function stageActionShot(game) {
+  reachLevel(game, 24);
+  const king = () => (game.king ? game.king.king : null);
+  let retries = 0;
+  for (let i = 0; i < 60 * 60 && retries < 3; i++) {
+    if (game.screen === 'gameOver') {
+      // The King got Pip three times: reload the level with fresh lives
+      // and stage the scene again.
+      game.loadLevel(24);
+      game.__ap = { phase: 'walk', paintT: 0, x0: 0, x1: 0, y: 0, jumpT: 0, level: -1, bounceTries: 0, jumpTime: -1, waitSince: null, fountainSince: null, paintLen: 40, noPaintUntil: 0 };
+      retries++;
+      continue;
+    }
+    if (game.screen !== 'play') break;
+    autopilot(game);
+    game.step(STEP);
+    const k = king();
+    const midAir = !game.player.grounded && game.paint.strokes.length > 0;
+    const kingBehind = k && k.x < game.player.x && game.player.x - k.x < 400;
+    if (midAir && kingBehind) break;
+    if (game.screen === 'levelComplete') {
+      // Cleared the level before the frame came together: reload it and
+      // try the scene again from the top.
+      game.loadLevel(24);
+      game.__ap = { phase: 'walk', paintT: 0, x0: 0, x1: 0, y: 0, jumpT: 0, level: -1, bounceTries: 0, jumpTime: -1, waitSince: null, fountainSince: null, paintLen: 40, noPaintUntil: 0 };
+    }
+  }
+  game.input.releaseAll();
+}
+
+/**
+ * Shot 2 — level 23, "Paper Boats": Pip riding a paper boat across the
+ * river, the ink fountain glowing on the far bank. The driver walks Pip
+ * to the edge, waits for the boat to come to him, steps aboard, and
+ * holds still mid-river for the frame.
+ */
+function stageFountainShot(game) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    reachLevel(game, 22);
+    const livesAtStart = game.lives;
+    let onBoat = false;
+    for (let i = 0; i < 60 * 30; i++) {
+      if (game.screen !== 'play') break;
+      const p = game.player;
+      const input = game.input;
+      const boat = game.boats.boats[0];
+      const riding = p.groundPlatform && game.boats.boats.includes(p.groundPlatform);
+      if (riding) {
+        input.setKey('KeyD', false);
+        input.setKey('KeyA', false);
+        input.setKey('Space', false);
+        onBoat = true;
+        // Hold still mid-river for a few frames, then take the shot.
+        for (let j = 0; j < 20; j++) game.step(STEP);
+        break;
+      }
+      if (p.x < 320) {
+        input.setKey('KeyD', true);
+        input.setKey('KeyA', false);
+        input.setKey('Space', false);
+      } else if (boat && boat.x <= 400 && boat.dir === 1) {
+        // The boat is coming to the left bank: step aboard.
+        input.setKey('KeyD', true);
+        input.setKey('KeyA', false);
+        input.setKey('Space', false);
+      } else {
+        // Wait at the edge for the boat to come back.
+        input.setKey('KeyD', false);
+        input.setKey('KeyA', false);
+        input.setKey('Space', false);
+      }
+      game.step(STEP);
+      if (game.lives < livesAtStart) break;
+    }
+    game.input.releaseAll();
+    if (onBoat) return;
+  }
+}
+
+/**
+ * Shot 3 — level 27, "Home, At Last": the finale chase. The autopilot
+ * plays until the King starts chasing, then a half second more, so the
+ * frame catches the King close behind Pip with the keys and the portal
+ * shimmer ahead.
+ */
+function stageKingShot(game) {
+  reachLevel(game, 26);
+  let chased = false;
+  for (let i = 0; i < 60 * 40; i++) {
+    if (game.screen !== 'play') break;
+    autopilot(game);
+    game.step(STEP);
+    const k = game.king ? game.king.king : null;
+    if (k && k.chasing) {
+      chased = true;
+      for (let j = 0; j < 30; j++) {
+        autopilot(game);
+        game.step(STEP);
+        if (game.screen !== 'play') break;
+      }
+      break;
+    }
+  }
+  game.input.releaseAll();
+  if (!chased) {
+    // Fallback: the frame is still the finale in play, King in frame.
+  }
 }

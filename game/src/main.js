@@ -11,6 +11,9 @@ import { Particles } from './particles.js';
 import { PaintManager } from './paint.js';
 import { Player } from './player.js';
 import { Hazards } from './enemies.js';
+import { FountainPools } from './fountains.js';
+import { PaperBoats } from './boats.js';
+import { EraserKing, KING_LINE } from './eraserking.js';
 import { Renderer } from './render.js';
 import { Hud, formatTime } from './hud.js';
 import { stageShot } from './shots.js';
@@ -37,9 +40,13 @@ export class Game {
     this.level = LEVELS[0];
     this.player.reset(this.level.start.x, this.level.start.y);
     this.hazards = new Hazards(this.level);
+    this.loadSystems();
     this.ink = INK.max;
     this.brush = 'cyan';
     this.lives = LIVES_PER_LEVEL;
+    this.deaths = 0;
+    this.eventLog = [];
+    this.fountainRefill = false;
     this.orbsTaken = [];
     this.orbsGot = 0;
     this.keysTaken = [];
@@ -89,6 +96,21 @@ export class Game {
     }
   }
 
+  /** Build the Chapter 4 systems for the current level (fountains, boats, King). */
+  loadSystems() {
+    this.fountains = new FountainPools(this.level);
+    this.boats = new PaperBoats(this.level);
+    this.king = new EraserKing(this.level);
+    // The player rides boats through hazards, so it can see them.
+    this.hazards.boats = this.boats;
+  }
+
+  /** One line in the HUD event log, stamped on the title clock. */
+  logEvent(text, color) {
+    this.eventLog.push({ text, color: color ?? COLORS.yellow, at: this.titleTime });
+    if (this.eventLog.length > 12) this.eventLog.shift();
+  }
+
   brushColor() {
     return PAINT_COLORS[this.brush].color;
   }
@@ -109,9 +131,13 @@ export class Game {
     this.levelIndex = 0;
     this.level = LEVELS[0];
     this.hazards = new Hazards(this.level);
+    this.loadSystems();
     this.ink = INK.max;
     this.brush = 'cyan';
     this.lives = LIVES_PER_LEVEL;
+    this.deaths = 0;
+    this.eventLog = [];
+    this.fountainRefill = false;
     this.orbsTaken = [];
     this.orbsGot = 0;
     this.keysTaken = [];
@@ -134,9 +160,14 @@ export class Game {
     this.levelIndex = index;
     this.level = LEVELS[index];
     this.hazards = new Hazards(this.level);
+    this.loadSystems();
     this.ink = this.level.ink;
     this.brush = this.level.paintColor ?? 'cyan';
     this.lives = LIVES_PER_LEVEL;
+    this.fountainRefill = false;
+    if (this.level.kingLine) {
+      this.logEvent(`THE ERASER KING: “${KING_LINE}”`, COLORS.eraser);
+    }
     this.orbsTaken = this.level.orbs.map(() => false);
     this.orbsGot = 0;
     this.keysTaken = this.level.keys.map(() => false);
@@ -155,12 +186,14 @@ export class Game {
     this.totalOrbs = 0;
     this.totalStars = 0;
     this.newBest = false;
+    this.deaths = 0;
+    this.eventLog = [];
     this.loadLevel(0);
     this.screen = 'play';
     this.sounds.ensure();
   }
 
-  /** Start a run at a chapter's first level (title screen keys 1/2/3). */
+  /** Start a run at a chapter's first level (title screen keys 1/2/3/4). */
   startChapter(chapter) {
     const at = CHAPTER_STARTS[chapter] ?? 0;
     this.totalTime = 0;
@@ -168,6 +201,8 @@ export class Game {
     this.totalOrbs = 0;
     this.totalStars = 0;
     this.newBest = false;
+    this.deaths = 0;
+    this.eventLog = [];
     this.loadLevel(at);
     this.screen = 'play';
     this.sounds.ensure();
@@ -183,6 +218,7 @@ export class Game {
       if (code === 'Digit1' || code === 'Numpad1') this.startChapter(0);
       else if (code === 'Digit2' || code === 'Numpad2') this.startChapter(1);
       else if (code === 'Digit3' || code === 'Numpad3') this.startChapter(2);
+      else if (code === 'Digit4' || code === 'Numpad4') this.startChapter(3);
       else if (code === 'Enter' || code === 'Space') this.startGame();
       return;
     }
@@ -264,6 +300,7 @@ export class Game {
     this.totalStars += this.lastStars;
     this.totalTime += this.levelTime;
     this.totalOrbs += this.orbsGot;
+    this.logEvent(`LEVEL CLEAR — ${'★'.repeat(this.lastStars)}${'☆'.repeat(3 - this.lastStars)}`, COLORS.portal);
     this.screen = 'levelComplete';
     this.sounds.levelClear();
     const portal = this.level.portal;
@@ -272,7 +309,14 @@ export class Game {
 
   die(cause) {
     if (this.invulnerable > 0 || this.screen !== 'play') return;
+    // Remember where Pip died, before the respawn moves him.
+    this.lastDeath = { x: Math.round(this.player.x), y: Math.round(this.player.y), cause };
     this.lives -= 1;
+    this.deaths += 1;
+    this.logEvent(
+      cause === 'king' ? 'The Eraser King got Pip!' : cause === 'fell' ? 'Pip fell off the page!' : 'Pip popped!',
+      COLORS.danger,
+    );
     this.sounds.hurt();
     this.renderer.addShake(14);
     this.particles.burst(this.player.x, this.player.y, COLORS.ink, 30);
@@ -309,8 +353,10 @@ export class Game {
         this.keysGot += 1;
         this.sounds.key();
         this.particles.sparkle(key.x, key.y, '#ffd23e');
+        this.logEvent(`Key ${this.keysGot}/${this.level.keys.length}!`, COLORS.yellow);
         if (!this.portalLocked()) {
           this.sounds.unlock();
+          this.logEvent('The portal is OPEN!', COLORS.portal);
           const portal = this.level.portal;
           this.particles.sparkle(portal.x + 27, portal.y + 39, COLORS.portal);
         }
@@ -369,6 +415,32 @@ export class Game {
       this.die('fell');
       return;
     }
+    // Paper boats drift along their path, carrying Pip with them.
+    this.boats.update(dt);
+    // The Eraser King patrols — and chases Pip when he comes close.
+    this.king.update(
+      dt,
+      this.player,
+      () => {
+        this.sounds.kingRoar();
+        this.logEvent('THE ERASER KING IS CHASING!', COLORS.danger);
+      },
+      () => this.die('king'),
+    );
+    // Ink fountains pour ink back into Pip's bottle while he stands in one.
+    const gained = this.fountains.update(
+      dt,
+      this.player,
+      this.ink,
+      INK.max,
+      () => {
+        this.sounds.fountain();
+        this.logEvent('Fountain refilled ink', COLORS.yellow);
+      },
+      (x, y) => this.particles.sparkle(x, y, '#ffd23e'),
+    );
+    this.fountainRefill = this.fountains.refilling;
+    if (gained > 0) this.ink = Math.min(INK.max, this.ink + gained);
     this.hazards.update(
       dt,
       this.player,

@@ -1,7 +1,8 @@
 // INKLING — Pip, the little ink drop. Runs, jumps and lands on static
-// platforms, moving platforms, crumble blocks and the paint the player
-// draws. Landing hard on amber paint bounces him back up, harder the
-// harder he fell. Falling off the page costs a life.
+// platforms, moving platforms, crumble blocks, paper boats and golden
+// rain platforms, and the paint the player draws. Landing hard on amber
+// paint bounces him back up, harder the harder he fell. Falling off the
+// page costs a life.
 
 import { PHYSICS, VIEW } from './config.js';
 
@@ -113,6 +114,29 @@ export class Player {
         if (this.x + this.radius * 0.7 > p.x && this.x - this.radius * 0.7 < p.x + p.w) {
           if (prevBottom <= p.y + 4 && newBottom >= p.y) {
             this.landOn(p.y, p);
+          }
+        }
+      }
+      // Paper boats: folded ferries that drift across a gap (Chapter 4).
+      // Pip rides them like a moving platform — step on, ride, step off
+      // at the far side. main.js hands the boats to hazards as .boats.
+      const boats = hazards.boats ? hazards.boats.boats : [];
+      for (const b of boats) {
+        if (this.x + this.radius * 0.7 > b.x && this.x - this.radius * 0.7 < b.x + b.w) {
+          if (prevBottom <= b.y + 4 && newBottom >= b.y) {
+            this.landOn(b.y, b);
+          }
+        }
+      }
+      // Golden rain platforms: solid while the shower is wet, gone when
+      // it dries (Chapter 4, level 24). The rain clock is hazards.time,
+      // which ticks once per play step just like the level clock.
+      if (hazards.rain) {
+        for (const s of hazards.rain.solidNow(hazards.time)) {
+          if (this.x + this.radius * 0.7 > s.x && this.x - this.radius * 0.7 < s.x + s.w) {
+            if (prevBottom <= s.y + 4 && newBottom >= s.y) {
+              this.landOn(s.y, s);
+            }
           }
         }
       }

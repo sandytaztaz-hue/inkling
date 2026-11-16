@@ -57,7 +57,32 @@ export const COLORS = {
   platformTop: '#57447e',
   portal: '#37ffa4',
   textDim: '#9d94b5',
+  // Chapter 4, "The Last Page": dawn gold — warm paper, golden light,
+  // lanterns and drifting motes, so the finale reads bright and dense.
+  dawnPaper: '#241a08',
+  dawnLight: '#f2c14e',
+  dawnGold: '#ffd23e',
+  dawnDeep: '#8a5c00',
+  fountain: '#ffd23e',
+  king: '#b8a7ff',
+  kingCrown: '#ffd23e',
 };
 
 export const LIVES_PER_LEVEL = 3;
-export const LEVEL_COUNT = 20;
+export const LEVEL_COUNT = 27;
+
+// Chapter 4 tuning: fountains pour ink back at 25 per second; the King
+// chases at 150 (Pip runs at 300, so he can always be outrun); golden
+// rain platforms stay solid 5 s, then dry away for 3 s.
+export const FOUNTAIN_REFILL = 25;
+export const KING_CHASE_SPEED = 150;
+export const RAIN_SOLID_SECONDS = 5;
+
+// The dawn-gold palette of Chapter 4, "The Last Page": warm paper,
+// golden light and lanterns, so the finale reads bright and dense.
+export const DAWN = {
+  paper: '#241a08',
+  paperLight: '#2e2110',
+  lantern: '#ffcf4d',
+  mote: '#ffd23e',
+};

@@ -116,6 +116,63 @@ export class Renderer {
       ctx.fill();
     }
     ctx.restore();
+    // Chapter 4, "The Last Page", is dawn gold: a low gold sun rises
+    // over the page, warm lanterns hang from the top edge and extra
+    // golden motes drift through the light, so the finale reads bright
+    // and dense instead of dark and empty.
+    if ((level.chapter ?? 0) === 3) {
+      ctx.save();
+      const sun = ctx.createRadialGradient(1080, 100, 10, 1080, 100, 190);
+      sun.addColorStop(0, 'rgba(255, 214, 90, 0.55)');
+      sun.addColorStop(0.45, 'rgba(255, 196, 70, 0.22)');
+      sun.addColorStop(1, 'rgba(255, 196, 70, 0)');
+      ctx.fillStyle = sun;
+      ctx.fillRect(880, -20, 400, 320);
+      ctx.fillStyle = '#ffd65a';
+      ctx.beginPath();
+      ctx.arc(1080, 100, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff0b0';
+      ctx.beginPath();
+      ctx.arc(1080, 100, 36, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 5; i++) {
+        const lx = 140 + i * 250;
+        const sway = Math.sin(this.time * 0.7 + i * 1.3) * 6;
+        const ly = 96 + Math.sin(this.time * 0.5 + i) * 4;
+        ctx.strokeStyle = '#8a5c00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(lx, 56);
+        ctx.lineTo(lx + sway, ly - 14);
+        ctx.stroke();
+        ctx.fillStyle = '#ffcf4d';
+        ctx.beginPath();
+        ctx.arc(lx + sway, ly, 17, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff3c4';
+        ctx.beginPath();
+        ctx.arc(lx + sway, ly, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = '#ffd23e';
+        ctx.beginPath();
+        ctx.arc(lx + sway, ly, 44, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      // Extra golden motes, denser than the chapter-neutral drift.
+      ctx.fillStyle = '#ffd23e';
+      for (let i = 0; i < 26; i++) {
+        const mx = (i * 173 + this.time * (8 + i * 0.7)) % VIEW.width;
+        const my = (i * 97 + Math.sin(this.time * 0.6 + i * 1.9) * 22 + VIEW.height) % VIEW.height;
+        ctx.globalAlpha = 0.12 + 0.1 * Math.sin(this.time * 1.4 + i);
+        ctx.beginPath();
+        ctx.arc(mx, my, 1.6 + (i % 3) * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     // Grain.
     if (this.grain) {
       const pattern = ctx.createPattern(this.grain, 'repeat');
@@ -341,6 +398,49 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Draw the golden rain: falling drops, and the temporary platforms. */
+  drawRain(ctx, game) {
+    const rain = game.hazards ? game.hazards.rain : null;
+    if (!rain || rain.showers.length === 0) return;
+    const levelTime = game.levelTime;
+    for (const s of rain.showers) {
+      // Falling golden drops inside the shower's column, always.
+      ctx.save();
+      ctx.strokeStyle = '#ffd23e';
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 10; i++) {
+        const dx = s.x + ((i * 37 + s.x) % s.w);
+        const fall = ((this.time * 260 + i * 53) % 320);
+        const y0 = s.y - 300 + fall;
+        if (y0 < s.y - 4) {
+          ctx.beginPath();
+          ctx.moveTo(dx, y0);
+          ctx.lineTo(dx, y0 + 14);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      // The platform itself, only while the shower is wet — fading and
+      // cracking as it dries, so its 5-second life reads on screen.
+      const wet = rain.wetness(s, levelTime);
+      if (wet <= 0) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.65 * wet;
+      ctx.fillStyle = '#ffcf4d';
+      roundRect(ctx, s.x, s.y, s.w, s.h, 8);
+      ctx.fill();
+      ctx.fillStyle = '#fff3c4';
+      ctx.fillRect(s.x + 4, s.y, s.w - 8, 5);
+      ctx.fillStyle = '#8a5c00';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 0.9 * wet;
+      ctx.fillText('INK RAIN', s.x + s.w / 2, s.y - 8);
+      ctx.restore();
+    }
+  }
+
   drawErasers(ctx, hazards) {
     for (const e of hazards.erasers) {
       ctx.save();
@@ -440,6 +540,10 @@ export class Renderer {
     this.drawKeys(ctx, game.level.keys, game.keysTaken);
     this.drawPortal(ctx, game.level.portal, game.portalLocked(), game.keysLeft());
     this.drawErasers(ctx, game.hazards);
+    if (game.fountains) game.fountains.draw(ctx, this.time);
+    if (game.boats) game.boats.draw(ctx, this.time);
+    if (game.king) game.king.draw(ctx, this.time);
+    this.drawRain(ctx, game);
     game.particles.draw(ctx);
     this.drawPlayer(ctx, game.player);
     if (game.screen === 'play') this.drawMouseBrush(ctx, game.input, game.ink, game.brushColor());

@@ -1,5 +1,6 @@
 // INKLING — procedural WebAudio sounds. No audio files: every effect is
-// synthesized from oscillators and filtered noise at play time.
+// synthesized from oscillators and filtered noise at play time. Chapter 4
+// adds the fountain's golden chime and the Eraser King's roar.
 
 export class SoundBank {
   constructor() {
@@ -130,5 +131,22 @@ export class SoundBank {
     notes.forEach((freq, i) => {
       setTimeout(() => this.tone(freq, 0.3, 'sawtooth', 0.14), i * 140);
     });
+  }
+
+  /** A soft golden chime: one tick of drinking at an ink fountain. */
+  fountain() {
+    this.tone(1047, 0.14, 'sine', 0.16, 1568);
+    this.tone(1568, 0.12, 'sine', 0.08, 2093);
+  }
+
+  /** The Eraser King's roar: a low sawtooth growl when a chase begins. */
+  kingRoar() {
+    this.tone(110, 0.5, 'sawtooth', 0.22, 55);
+    this.noise(0.35, 0.14, 500);
+  }
+
+  /** The King's grumble when Pip slips away: a short low note. */
+  kingGrumble() {
+    this.tone(165, 0.22, 'sawtooth', 0.12, 110);
   }
 }

@@ -6,6 +6,57 @@
 
 export const CRUMBLE_SECONDS = 1.2;
 
+/**
+ * Golden ink rain (Chapter 4, level 24, "The Ink Rain"): timed showers
+ * paint temporary platforms across a gap. Each shower is a solid
+ * platform for `on` seconds, then it dries away for the rest of its
+ * period and paints itself again. The cycle runs on the level clock, so
+ * it is perfectly predictable — a patient Pip rides the rain, and a
+ * hurried one just paints a bridge instead. The rain never has to be
+ * used; it is a gift, not a gate.
+ */
+export class RainShowers {
+  constructor(level) {
+    this.reset(level);
+  }
+
+  reset(level) {
+    // A rain def is {x, y, w, h, period, on, offset}: the platform at
+    // (x, y) is solid while ((levelTime + offset) % period) < on.
+    this.showers = (level.rain ?? []).map((r) => ({
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      period: r.period ?? 8,
+      on: r.on ?? 5,
+      offset: r.offset ?? 0,
+    }));
+    this.time = 0;
+  }
+
+  update(dt) {
+    this.time += dt;
+  }
+
+  /** True while this shower's platform is solid at the level clock. */
+  isSolid(shower, levelTime) {
+    return ((levelTime + shower.offset) % shower.period) < shower.on;
+  }
+
+  /** The solid showers right now, for collision and the autopilot. */
+  solidNow(levelTime) {
+    return this.showers.filter((s) => this.isSolid(s, levelTime));
+  }
+
+  /** How solid a shower is, 1 (fresh) to 0 (about to dry) — for drawing. */
+  wetness(shower, levelTime) {
+    const phase = (levelTime + shower.offset) % shower.period;
+    if (phase >= shower.on) return 0;
+    return 1 - phase / shower.on;
+  }
+}
+
 export class Hazards {
   constructor(level) {
     this.reset(level);
@@ -59,10 +110,14 @@ export class Hazards {
     }));
     this.windPush = 0;
     this.time = 0;
+    // Golden ink rain: temporary platforms that paint themselves, dry
+    // in 5 seconds, and paint themselves again (Chapter 4, level 24).
+    this.rain = new RainShowers(level);
   }
 
   update(dt, player, paint, onErase, onHurt, onCrumble) {
     this.time += dt;
+    this.rain.update(dt);
     // Moving platforms slide between their endpoints and report their delta.
     for (const m of this.movers) {
       m.dx = 0;

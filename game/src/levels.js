@@ -43,10 +43,21 @@ export const CHAPTERS = [
     platformTop: '#376654',
     accent: '#37ffa4',
   },
+  {
+    name: 'The Last Page',
+    tag: 'CHAPTER 4 — THE LAST PAGE',
+    story: 'The last page is folding. Paint home before the ink runs out — Pip.',
+    paper: '#3d2c11',
+    paperLight: '#4a3717',
+    paperLine: '#5d4722',
+    platform: '#6b4c22',
+    platformTop: '#a37c33',
+    accent: '#ffd23e',
+  },
 ];
 
-/** First level index of each chapter (for the title screen's 1/2/3 jump). */
-export const CHAPTER_STARTS = [0, 7, 13];
+/** First level index of each chapter (for the title screen's 1/2/3/4 jump). */
+export const CHAPTER_STARTS = [0, 7, 13, 20];
 
 function level(def) {
   return {
@@ -68,6 +79,14 @@ function level(def) {
     crumbles: def.crumbles ?? [],
     paintColor: def.paintColor ?? 'cyan',
     apBounce: def.apBounce ?? null,
+    // Chapter 4: ink fountains refill Pip's bottle, paper boats ferry
+    // him across gaps, the Eraser King patrols and chases, and golden
+    // rain paints temporary platforms that dry in 5 seconds.
+    fountains: def.fountains ?? [],
+    boats: def.boats ?? [],
+    kings: def.kings ?? [],
+    rain: def.rain ?? [],
+    kingLine: def.kingLine ?? null,
   };
 }
 
@@ -425,6 +444,156 @@ export const LEVELS = [
       { x: 1060, y: 584 },
     ],
     erasers: [{ x: 680, y: 420, axis: 'x', from: 560, to: 820, speed: 100, r: 22 }],
+  }),
+
+  // ---- Chapter 4: The Last Page (dawn gold) ----
+  level({
+    name: 'First Light',
+    hint: 'Dawn gold on the last page. Drink at the INK FOUNTAIN — it refills your bottle.',
+    chapter: 3,
+    par: 30,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 520, h: 80 },
+      { x: 720, y: 640, w: 560, h: 80 },
+    ],
+    orbs: [{ x: 620, y: 600 }],
+    fountains: [{ x: 300, y: 570, w: 110, h: 70 }],
+  }),
+  level({
+    name: 'The Fountain Road',
+    hint: 'A long dry crossing — ink starts at 60. Drink at every fountain on the road.',
+    chapter: 3,
+    ink: 60,
+    par: 45,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 300, h: 80 },
+      { x: 560, y: 640, w: 160, h: 80 },
+      { x: 980, y: 640, w: 300, h: 80 },
+    ],
+    orbs: [
+      { x: 640, y: 600 },
+      { x: 880, y: 600 },
+    ],
+    fountains: [
+      { x: 120, y: 570, w: 110, h: 70 },
+      { x: 580, y: 570, w: 110, h: 70 },
+    ],
+  }),
+  level({
+    name: 'Paper Boats',
+    hint: 'Ride the PAPER BOAT across — step on, wait for the far side, step off. Paint can meet it mid-river.',
+    chapter: 3,
+    par: 40,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 360, h: 80 },
+      { x: 900, y: 640, w: 380, h: 80 },
+    ],
+    orbs: [{ x: 640, y: 610 }],
+    boats: [{ x: 380, y: 660, w: 200, h: 22, axis: 'x', from: 380, to: 700, speed: 90 }],
+    fountains: [{ x: 1020, y: 570, w: 110, h: 70 }],
+  }),
+  level({
+    name: 'The Ink Rain',
+    hint: 'Golden rain paints platforms that dry in 5 seconds — or paint your own bridge and ignore the weather.',
+    chapter: 3,
+    ink: 80,
+    par: 40,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 340, h: 80 },
+      { x: 940, y: 640, w: 340, h: 80 },
+    ],
+    orbs: [
+      { x: 470, y: 590 },
+      { x: 730, y: 590 },
+    ],
+    // Rain platforms cycle: solid 5 s, gone 3 s, offset by half a cycle.
+    rain: [
+      { x: 380, y: 600, w: 170, h: 18, period: 8, on: 5, offset: 0 },
+      { x: 640, y: 600, w: 170, h: 18, period: 8, on: 5, offset: 4 },
+    ],
+  }),
+  level({
+    name: 'The Eraser King Wakes',
+    hint: 'THE ERASER KING patrols the road — and CHASES when you come close. Jump clean over his crown.',
+    chapter: 3,
+    par: 40,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 420, h: 80 },
+      { x: 860, y: 640, w: 420, h: 80 },
+    ],
+    orbs: [{ x: 1050, y: 600 }],
+    keys: [{ x: 640, y: 600 }],
+    kings: [{ x: 640, y: 580, from: 480, to: 820, speed: 70 }],
+    kingLine: 'No more painting, little ink.',
+    fountains: [{ x: 120, y: 570, w: 110, h: 70 }],
+  }),
+  level({
+    name: 'The Folding Page',
+    hint: 'Thin ice, a paper boat below, a fountain behind you — and the King patrolling the middle.',
+    chapter: 3,
+    par: 50,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 562 },
+    platforms: [
+      { x: 0, y: 640, w: 300, h: 80 },
+      { x: 980, y: 640, w: 300, h: 80 },
+    ],
+    crumbles: [
+      { x: 340, y: 640, w: 140, h: 24 },
+      { x: 520, y: 640, w: 140, h: 24 },
+      { x: 700, y: 640, w: 140, h: 24 },
+    ],
+    orbs: [
+      { x: 550, y: 600 },
+      { x: 900, y: 600 },
+    ],
+    kings: [{ x: 640, y: 580, from: 480, to: 800, speed: 70 }],
+    fountains: [{ x: 120, y: 570, w: 110, h: 70 }],
+  }),
+  level({
+    name: 'Home, At Last',
+    hint: 'The King guards the final keys. Three keys, one tired bottle — paint only what you need.',
+    chapter: 3,
+    ink: 60,
+    par: 60,
+    start: { x: 80, y: 600 },
+    portal: { x: 1170, y: 522 },
+    // The finale road runs flat at y640 so Pip walks it, and the King
+    // stands ON the road on the long middle platform — the only jump on
+    // this level is the jump OVER the King himself, on solid ground, and
+    // the last step up to the portal. (Round 4 lesson: the first finale
+    // made Pip jump between stepping stones right through the King's
+    // patrol band at y520 — he overshot the stones and met the King
+    // mid-arc, three deaths in a row.)
+    platforms: [
+      { x: 0, y: 640, w: 200, h: 80 },
+      { x: 340, y: 640, w: 240, h: 80 },
+      { x: 620, y: 640, w: 240, h: 80 },
+      { x: 900, y: 640, w: 140, h: 80 },
+      { x: 1120, y: 600, w: 160, h: 120 },
+    ],
+    orbs: [
+      { x: 150, y: 584 },
+      { x: 560, y: 584 },
+      { x: 1160, y: 520 },
+    ],
+    keys: [
+      { x: 280, y: 584 },
+      { x: 800, y: 584 },
+      { x: 1060, y: 584 },
+    ],
+    kings: [{ x: 680, y: 640, from: 620, to: 860, speed: 80 }],
+    fountains: [{ x: 60, y: 570, w: 110, h: 70 }],
   }),
 ];
 
