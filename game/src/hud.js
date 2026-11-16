@@ -19,6 +19,25 @@ function title(ctx, text, y, size, color) {
   ctx.fillText(text, VIEW.width / 2, y);
 }
 
+// A dark backing plate behind a centred HUD line, so gold text reads
+// cleanly over ANY backdrop. Chapter 4's hanging lanterns sit exactly on
+// the hint/objective rows (lantern centres y ~96, glow r 44) and their
+// glow used to wash the words out mid-line; the plate is measured from
+// the text itself, so it fits every line and never covers more of the
+// scene than the words need. The scene itself is untouched — no global
+// brightening, so the cyan bridge keeps its colour.
+function backedText(ctx, text, y, size, color) {
+  ctx.font = `bold ${size}px sans-serif`;
+  ctx.textAlign = 'center';
+  const w = ctx.measureText(text).width;
+  const padX = 14;
+  const padY = 7;
+  ctx.fillStyle = 'rgba(10, 7, 18, 0.78)';
+  ctx.fillRect(VIEW.width / 2 - w / 2 - padX, y - size - padY, w + padX * 2, size + padY * 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, VIEW.width / 2, y);
+}
+
 function line(ctx, text, y, size, color) {
   ctx.fillStyle = color ?? COLORS.textDim;
   ctx.font = `${size}px sans-serif`;
@@ -98,26 +117,18 @@ export class Hud {
           ? (game.level.chapter === 3 ? 'PAINT THE LAST PAGE — ' : 'FIND THE KEYS — ') +
             `${keysLeft} KEY${keysLeft > 1 ? 'S' : ''} LEFT`
           : 'REACH THE EXIT PORTAL';
-      ctx.fillStyle = (game.level.chapter ?? 0) === 3 ? COLORS.yellow : COLORS.paperWhite;
-      ctx.font = 'bold 17px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(objective, VIEW.width / 2, 120);
+      backedText(ctx, objective, 120, 17, (game.level.chapter ?? 0) === 3 ? COLORS.yellow : COLORS.paperWhite);
     }
     // Event log: the last two things that happened, bottom-left.
     this.drawEventLog(ctx, game);
-    // Hint line for the first seconds of a level.
+    // Hint line for the first seconds of a level — on a backing plate,
+    // so the lantern row never eats the words.
     if (game.levelTime < 6 && game.screen === 'play') {
-      ctx.fillStyle = COLORS.yellow;
-      ctx.font = 'bold 19px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(game.level.hint, VIEW.width / 2, 92);
+      backedText(ctx, game.level.hint, 92, 19, COLORS.yellow);
     }
     // Low-ink warning.
     if (game.ink < 20 && game.screen === 'play') {
-      ctx.fillStyle = COLORS.danger;
-      ctx.font = 'bold 19px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('LOW INK — grab an orb!', VIEW.width / 2, 118);
+      backedText(ctx, 'LOW INK — grab an orb!', 118, 19, COLORS.danger);
     }
   }
 

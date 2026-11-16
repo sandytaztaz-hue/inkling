@@ -517,10 +517,12 @@ function stageActionShot(game) {
 }
 
 /**
- * Shot 2 — level 23, "Paper Boats": Pip riding a paper boat across the
- * river, the ink fountain glowing on the far bank. The driver walks Pip
- * to the edge, waits for the boat to come to him, steps aboard, and
- * holds still mid-river for the frame.
+ * Shot 2 — level 23, "Paper Boats": Pip riding a paper boat MID-RIVER
+ * across the crossing, the ink fountain glowing on the far bank. The
+ * driver walks Pip to the edge, waits for the boat to come to him,
+ * steps aboard, and rides on until the boat's centre is mid-frame
+ * (boat.x ≈ 540) before holding still for the frame — Pip centred and
+ * clear of the minimap strip, not small at the boarding bank.
  */
 function stageFountainShot(game) {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -537,10 +539,20 @@ function stageFountainShot(game) {
         input.setKey('KeyD', false);
         input.setKey('KeyA', false);
         input.setKey('Space', false);
-        onBoat = true;
-        // Hold still mid-river for a few frames, then take the shot.
-        for (let j = 0; j < 20; j++) game.step(STEP);
-        break;
+        // Ride on: the frame is taken mid-river, not at the boarding
+        // bank. The boat runs x 380–700, so its centre crosses the
+        // middle of the frame (x 640) at boat.x ≈ 540 — Pip standing
+        // there reads centred, clear of the minimap strip, with the
+        // fountain on the far bank in frame. (Round-4 fix: the first
+        // staging shot the frame 20 steps after boarding, boat still
+        // at the left bank — Pip small at the bottom edge, top of the
+        // frame empty brown paper.)
+        if (boat.x >= 520) {
+          onBoat = true;
+          // Hold still for a few frames, then take the shot.
+          for (let j = 0; j < 10; j++) game.step(STEP);
+          break;
+        }
       }
       if (p.x < 320) {
         input.setKey('KeyD', true);
