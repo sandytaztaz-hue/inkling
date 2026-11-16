@@ -62,12 +62,15 @@ export class FountainPools {
     this.activePool = pool;
     const gained = Math.min(FOUNTAIN_REFILL_PER_SECOND * dt, maxInk - ink);
     // Droplets: one rises out of the pool roughly every 0.18 s while
-    // Pip drinks, drifting up and bursting gold.
+    // Pip drinks, drifting up and bursting gold. The sideways position
+    // is derived from the pool phase and the clock, never Math.random(),
+    // so a run stays deterministic frame for frame.
     pool.dropletAt += dt;
     if (pool.dropletAt >= 0.18) {
       pool.dropletAt = 0;
       if (onDroplet) {
-        const dx = pool.x + 12 + Math.random() * (pool.w - 24);
+        const spread = Math.max(pool.w - 24, 8);
+        const dx = pool.x + 12 + (((pool.phase * 977 + this.time * 13) % 1) * spread);
         onDroplet(dx, pool.y + pool.h - 6);
       }
     }

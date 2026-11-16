@@ -42,15 +42,22 @@ export class PaperBoats {
       boat.dx = 0;
       boat.dy = 0;
       const pos = boat.axis === 'x' ? boat.x : boat.y;
-      const next = pos + boat.speed * boat.dir * dt;
-      if (next > boat.to) boat.dir = -1;
-      else if (next < boat.from) boat.dir = 1;
-      const step = boat.speed * boat.dir * dt;
+      // Clamp to the endpoint on the turn so a boat never overshoots
+      // its path by a frame's step, and report the exact distance moved.
+      let next = pos + boat.speed * boat.dir * dt;
+      if (next > boat.to) {
+        next = boat.to;
+        boat.dir = -1;
+      } else if (next < boat.from) {
+        next = boat.from;
+        boat.dir = 1;
+      }
+      const step = next - pos;
       if (boat.axis === 'x') {
-        boat.x += step;
+        boat.x = next;
         boat.dx = step;
       } else {
-        boat.y += step;
+        boat.y = next;
         boat.dy = step;
       }
     }
