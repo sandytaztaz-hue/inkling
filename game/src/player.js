@@ -1,8 +1,13 @@
 // INKLING — Pip, the little ink drop. Runs, jumps and lands on static
-// platforms, moving platforms and the paint the player draws. Falling off
-// the page costs a life.
+// platforms, moving platforms, crumble blocks and the paint the player
+// draws. Landing hard on amber paint bounces him back up, harder the
+// harder he fell. Falling off the page costs a life.
 
 import { PHYSICS, VIEW } from './config.js';
+
+function clampBounce(vy) {
+  return -Math.max(500, Math.min(1150, vy * 1.4));
+}
 
 export class Player {
   constructor() {
@@ -42,7 +47,7 @@ export class Player {
     if (target !== 0) this.facing = target;
     const accel = this.grounded ? PHYSICS.moveAccel : PHYSICS.airAccel;
     this.vx += target * accel * dt;
-    const maxSpeed = PHYSICS.moveSpeed * (hazards.windPush !== 0 ? 1 : 1);
+    const maxSpeed = PHYSICS.moveSpeed;
     if (this.vx > maxSpeed) this.vx = maxSpeed;
     if (this.vx < -maxSpeed) this.vx = -maxSpeed;
     if (target === 0 && this.grounded) {
@@ -94,6 +99,15 @@ export class Player {
           }
         }
       }
+      // Crumble blocks: solid until they fall apart.
+      for (const c of hazards.crumbles) {
+        if (c.gone) continue;
+        if (this.x + this.radius * 0.7 > c.x && this.x - this.radius * 0.7 < c.x + c.w) {
+          if (prevBottom <= c.y + 4 && newBottom >= c.y) {
+            this.landOn(c.y, c);
+          }
+        }
+      }
       // Moving platforms.
       for (const p of hazards.movers) {
         if (this.x + this.radius * 0.7 > p.x && this.x - this.radius * 0.7 < p.x + p.w) {
@@ -102,16 +116,24 @@ export class Player {
           }
         }
       }
-      // Paint strokes.
+      // Paint strokes. Amber paint bounces a falling Pip back up.
       if (!this.grounded) {
-        const paintY = paint.supportY(this.x, prevBottom, newBottom);
-        if (paintY !== null) this.landOn(paintY, null);
+        const hit = paint.supportY(this.x, prevBottom, newBottom);
+        if (hit !== null) {
+          if (hit.stroke.colorName === 'amber' && this.vy > 150) {
+            this.vy = clampBounce(this.vy);
+            this.grounded = false;
+            this.squash = -0.3;
+            return 'bounced';
+          }
+          this.landOn(hit.y, null);
+        }
       }
     }
     // Riding a moving platform carries Pip along with it.
     if (this.groundPlatform) {
-      this.x += this.groundPlatform.dx;
-      this.y += this.groundPlatform.dy;
+      this.x += this.groundPlatform.dx ?? 0;
+      this.y += this.groundPlatform.dy ?? 0;
     }
     // Bounce pads.
     for (const pad of level.bouncePads) {

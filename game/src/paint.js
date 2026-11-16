@@ -1,8 +1,10 @@
 // INKLING — paint strokes: the world the player draws. A stroke is a chain
-// of points that is solid while wet, then dries, cracks and crumbles away
-// after PAINT.drySeconds, so every bridge is a clock as well as a road.
+// of points that is solid while wet, then dries, cracks and crumbles away,
+// so every bridge is a clock as well as a road. Each stroke carries its
+// brush colour: cyan is the plain road, amber bounces Pip back up, violet
+// dries slowly for long crossings.
 
-import { PAINT, COLORS, INK } from './config.js';
+import { PAINT, PAINT_COLORS } from './config.js';
 
 export class PaintManager {
   constructor() {
@@ -17,8 +19,17 @@ export class PaintManager {
     this.current = null;
   }
 
-  beginStroke(x, y) {
-    this.current = { points: [{ x, y }], age: 0, color: COLORS.ink };
+  beginStroke(x, y, colorName) {
+    const def = PAINT_COLORS[colorName] ?? PAINT_COLORS.cyan;
+    this.current = {
+      points: [{ x, y }],
+      age: 0,
+      colorName,
+      color: def.color,
+      dark: def.dark,
+      cost: def.cost,
+      drySeconds: def.drySeconds,
+    };
     this.strokes.push(this.current);
   }
 
@@ -30,7 +41,7 @@ export class PaintManager {
     const dist = Math.hypot(x - last.x, y - last.y);
     if (dist < PAINT.minPointGap) return 0;
     pts.push({ x, y });
-    return dist * INK.costPerPixel;
+    return dist * this.current.cost;
   }
 
   endStroke() {
@@ -40,7 +51,11 @@ export class PaintManager {
     this.current = null;
   }
 
-  /** The ground height of paint under x, between the player's old and new feet. */
+  /**
+   * The ground under x, between the player's old and new feet. Returns
+   * {y, stroke} for the highest paint found, or null. The stroke matters:
+   * amber paint bounces Pip instead of holding him.
+   */
   supportY(x, prevBottom, newBottom) {
     let best = null;
     for (const stroke of this.strokes) {
@@ -48,7 +63,7 @@ export class PaintManager {
       for (const p of stroke.points) {
         if (Math.abs(p.x - x) > 13) continue;
         if (p.y < prevBottom - 6 || p.y > newBottom + 4) continue;
-        if (best === null || p.y < best) best = p.y;
+        if (best === null || p.y < best.y) best = { y: p.y, stroke };
       }
     }
     return best;
@@ -84,7 +99,7 @@ export class PaintManager {
     for (let i = this.strokes.length - 1; i >= 0; i--) {
       const stroke = this.strokes[i];
       stroke.age += dt;
-      if (stroke.age >= PAINT.drySeconds) {
+      if (stroke.age >= stroke.drySeconds) {
         if (this.onCrumble) this.onCrumble(stroke);
         this.strokes.splice(i, 1);
       }
@@ -93,7 +108,7 @@ export class PaintManager {
 
   /** Dryness 0 (fresh) to 1 (about to crumble). */
   dryness(stroke) {
-    return Math.min(1, stroke.age / PAINT.drySeconds);
+    return Math.min(1, stroke.age / stroke.drySeconds);
   }
 
   draw(ctx) {
@@ -107,7 +122,7 @@ export class PaintManager {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       // Wobbly hand-drawn edge: a darker under-stroke, then the bright core.
-      ctx.strokeStyle = COLORS.inkDark;
+      ctx.strokeStyle = stroke.dark;
       ctx.lineWidth = PAINT.strokeWidth + 3;
       this.tracePath(ctx, pts);
       ctx.stroke();
@@ -115,6 +130,19 @@ export class PaintManager {
       ctx.lineWidth = PAINT.strokeWidth;
       this.tracePath(ctx, pts);
       ctx.stroke();
+      // Amber paint reads as springy: little chevrons along the stroke.
+      if (stroke.colorName === 'amber') {
+        ctx.strokeStyle = '#fff3d6';
+        ctx.lineWidth = 2;
+        for (let i = 4; i < pts.length - 2; i += 8) {
+          const p = pts[i];
+          ctx.beginPath();
+          ctx.moveTo(p.x - 5, p.y + 4);
+          ctx.lineTo(p.x, p.y - 5);
+          ctx.lineTo(p.x + 5, p.y + 4);
+          ctx.stroke();
+        }
+      }
       // Drying cracks: short dark ticks across the stroke once it ages.
       if (dry > PAINT.crackAt / PAINT.drySeconds) {
         ctx.strokeStyle = '#0b2430';

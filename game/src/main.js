@@ -2,8 +2,8 @@
 // One step advances exactly one fixed tick; the loop, the autopilot and the
 // screenshot stager all drive the same step().
 
-import { VIEW, STEP, INK, LIVES_PER_LEVEL, LEVEL_COUNT, COLORS } from './config.js';
-import { LEVELS, totalPar } from './levels.js';
+import { VIEW, STEP, INK, LIVES_PER_LEVEL, LEVEL_COUNT, COLORS, PAINT_COLORS, BRUSH_KEYS } from './config.js';
+import { LEVELS, CHAPTERS, CHAPTER_STARTS, totalPar } from './levels.js';
 import { makeRng } from './random.js';
 import { Input } from './input.js';
 import { SoundBank } from './audio.js';
@@ -38,21 +38,27 @@ export class Game {
     this.player.reset(this.level.start.x, this.level.start.y);
     this.hazards = new Hazards(this.level);
     this.ink = INK.max;
+    this.brush = 'cyan';
     this.lives = LIVES_PER_LEVEL;
     this.orbsTaken = [];
     this.orbsGot = 0;
+    this.keysTaken = [];
+    this.keysGot = 0;
     this.levelTime = 0;
     this.totalTime = 0;
     this.totalScore = 0;
     this.totalOrbs = 0;
     this.totalOrbsPossible = LEVELS.reduce((n, l) => n + l.orbs.length, 0);
+    this.totalStars = 0;
     this.parTotal = totalPar();
     this.lastLevelScore = 0;
     this.lastInkBonus = 0;
+    this.lastStars = 0;
     this.bestTotal = this.loadBest();
     this.newBest = false;
     this.invulnerable = 0;
     this.paintSoundAt = 0;
+    this.lastBounceAt = -1;
     this.paint.onCrumble = (stroke) => {
       const mid = stroke.points[Math.floor(stroke.points.length / 2)];
       if (mid) this.particles.dust(mid.x, mid.y, COLORS.inkDark);
@@ -83,6 +89,18 @@ export class Game {
     }
   }
 
+  brushColor() {
+    return PAINT_COLORS[this.brush].color;
+  }
+
+  portalLocked() {
+    return this.keysGot < this.level.keys.length;
+  }
+
+  keysLeft() {
+    return this.level.keys.length - this.keysGot;
+  }
+
   reset(seed) {
     this.seed = seed;
     this.rng = makeRng(seed);
@@ -92,15 +110,20 @@ export class Game {
     this.level = LEVELS[0];
     this.hazards = new Hazards(this.level);
     this.ink = INK.max;
+    this.brush = 'cyan';
     this.lives = LIVES_PER_LEVEL;
     this.orbsTaken = [];
     this.orbsGot = 0;
+    this.keysTaken = [];
+    this.keysGot = 0;
     this.levelTime = 0;
     this.totalTime = 0;
     this.totalScore = 0;
     this.totalOrbs = 0;
+    this.totalStars = 0;
     this.newBest = false;
     this.invulnerable = 0;
+    this.lastBounceAt = -1;
     this.paint.reset();
     this.particles.clear();
     this.player.reset(this.level.start.x, this.level.start.y);
@@ -112,11 +135,15 @@ export class Game {
     this.level = LEVELS[index];
     this.hazards = new Hazards(this.level);
     this.ink = this.level.ink;
+    this.brush = this.level.paintColor ?? 'cyan';
     this.lives = LIVES_PER_LEVEL;
     this.orbsTaken = this.level.orbs.map(() => false);
     this.orbsGot = 0;
+    this.keysTaken = this.level.keys.map(() => false);
+    this.keysGot = 0;
     this.levelTime = 0;
     this.invulnerable = 0;
+    this.lastBounceAt = -1;
     this.paint.reset();
     this.particles.clear();
     this.player.reset(this.level.start.x, this.level.start.y);
@@ -126,8 +153,22 @@ export class Game {
     this.totalTime = 0;
     this.totalScore = 0;
     this.totalOrbs = 0;
+    this.totalStars = 0;
     this.newBest = false;
     this.loadLevel(0);
+    this.screen = 'play';
+    this.sounds.ensure();
+  }
+
+  /** Start a run at a chapter's first level (title screen keys 1/2/3). */
+  startChapter(chapter) {
+    const at = CHAPTER_STARTS[chapter] ?? 0;
+    this.totalTime = 0;
+    this.totalScore = 0;
+    this.totalOrbs = 0;
+    this.totalStars = 0;
+    this.newBest = false;
+    this.loadLevel(at);
     this.screen = 'play';
     this.sounds.ensure();
   }
@@ -139,7 +180,10 @@ export class Game {
       return;
     }
     if (this.screen === 'title') {
-      if (code === 'Enter' || code === 'Space') this.startGame();
+      if (code === 'Digit1' || code === 'Numpad1') this.startChapter(0);
+      else if (code === 'Digit2' || code === 'Numpad2') this.startChapter(1);
+      else if (code === 'Digit3' || code === 'Numpad3') this.startChapter(2);
+      else if (code === 'Enter' || code === 'Space') this.startGame();
       return;
     }
     if (this.screen === 'levelComplete') {
@@ -168,6 +212,12 @@ export class Game {
     if (this.screen === 'play') {
       if (code === 'KeyP' || code === 'Escape') this.screen = 'paused';
       if (code === 'KeyR') this.loadLevel(this.levelIndex);
+      // Brush colours: 1 cyan, 2 amber (bouncy), 3 violet (slow-dry).
+      const brushIndex = ['Digit1', 'Digit2', 'Digit3'].indexOf(code);
+      if (brushIndex >= 0) {
+        this.brush = BRUSH_KEYS[brushIndex];
+        this.sounds.orb();
+      }
     }
   }
 
@@ -204,8 +254,14 @@ export class Game {
   completeLevel() {
     const timeBonus = Math.max(0, Math.round((this.level.par - this.levelTime) * 20));
     this.lastInkBonus = Math.ceil(this.ink) * 2;
-    this.lastLevelScore = 500 + this.orbsGot * 150 + timeBonus + this.lastInkBonus;
+    this.lastLevelScore =
+      500 + this.orbsGot * 150 + this.keysGot * 100 + timeBonus + this.lastInkBonus;
+    this.lastStars =
+      (this.levelTime <= this.level.par ? 1 : 0) +
+      (this.orbsGot === this.level.orbs.length ? 1 : 0) +
+      (this.ink >= 30 ? 1 : 0);
     this.totalScore += this.lastLevelScore;
+    this.totalStars += this.lastStars;
     this.totalTime += this.levelTime;
     this.totalOrbs += this.orbsGot;
     this.screen = 'levelComplete';
@@ -235,7 +291,7 @@ export class Game {
   collectOrbs() {
     this.level.orbs.forEach((orb, i) => {
       if (this.orbsTaken[i]) return;
-      if (Math.hypot(this.player.x - orb.x, this.player.y - orb.y) < 32) {
+      if (Math.hypot(this.player.x - orb.x, this.player.y - orb.y) < 44) {
         this.orbsTaken[i] = true;
         this.orbsGot += 1;
         this.ink = Math.min(INK.max, this.ink + INK.orbRefill);
@@ -245,7 +301,25 @@ export class Game {
     });
   }
 
+  collectKeys() {
+    this.level.keys.forEach((key, i) => {
+      if (this.keysTaken[i]) return;
+      if (Math.hypot(this.player.x - key.x, this.player.y - key.y) < 48) {
+        this.keysTaken[i] = true;
+        this.keysGot += 1;
+        this.sounds.key();
+        this.particles.sparkle(key.x, key.y, '#ffd23e');
+        if (!this.portalLocked()) {
+          this.sounds.unlock();
+          const portal = this.level.portal;
+          this.particles.sparkle(portal.x + 27, portal.y + 39, COLORS.portal);
+        }
+      }
+    });
+  }
+
   inPortal() {
+    if (this.portalLocked()) return false;
     const portal = this.level.portal;
     const cx = portal.x + 27;
     const cy = portal.y + 39;
@@ -268,12 +342,12 @@ export class Game {
     // Painting: hold the mouse and drag to lay down a wet stroke.
     if (this.input.mouseDown && this.ink > 0) {
       if (!this.paint.current) {
-        this.paint.beginStroke(this.input.mouseX, this.input.mouseY);
+        this.paint.beginStroke(this.input.mouseX, this.input.mouseY, this.brush);
       } else {
         const spent = this.paint.extendStroke(this.input.mouseX, this.input.mouseY);
         this.ink = Math.max(0, this.ink - spent);
         if (spent > 0) {
-          this.particles.splat(this.input.mouseX, this.input.mouseY, COLORS.ink);
+          this.particles.splat(this.input.mouseX, this.input.mouseY, this.brushColor());
           if (this.levelTime - this.paintSoundAt > 0.12) {
             this.paintSoundAt = this.levelTime;
             this.sounds.paint();
@@ -287,6 +361,7 @@ export class Game {
     const result = this.player.update(dt, this.input, this.level, this.paint, this.hazards);
     if (result === 'jumped') this.sounds.jump();
     if (result === 'bounced') {
+      this.lastBounceAt = this.levelTime;
       this.sounds.bounce();
       this.particles.splat(this.player.x, this.player.bottom, '#ffd23e');
     }
@@ -294,9 +369,20 @@ export class Game {
       this.die('fell');
       return;
     }
-    this.hazards.update(dt, this.player, this.paint, () => {}, () => this.die('hazard'));
+    this.hazards.update(
+      dt,
+      this.player,
+      this.paint,
+      () => {},
+      () => this.die('hazard'),
+      (x, y) => {
+        this.particles.dust(x, y, '#8d7fb5');
+        this.sounds.crumble();
+      },
+    );
     this.paint.update(dt);
     this.collectOrbs();
+    this.collectKeys();
     this.particles.update(dt);
     if (this.screen === 'play' && this.inPortal()) this.completeLevel();
   }
@@ -311,6 +397,7 @@ export class Game {
     }
     this.renderer.render(this);
     this.hud.drawBar(ctx, this);
+    this.hud.drawIntro(ctx, this);
     if (this.screen === 'levelComplete') this.hud.drawLevelComplete(ctx, this);
     else if (this.screen === 'gameOver') this.hud.drawGameOver(ctx, this);
     else if (this.screen === 'victory') this.hud.drawVictory(ctx, this);

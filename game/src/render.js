@@ -1,7 +1,10 @@
 // INKLING — all drawing. Dark paper with a faint grain and ruled lines,
-// bright paint, and Pip the ink drop with eyes that look where he moves.
+// drifting ink motes and paper scraps, bright paint, and Pip the ink drop
+// with eyes that look where he moves. Each chapter tints the whole page
+// its own colour, so the journey home reads at a glance.
 
 import { COLORS, VIEW } from './config.js';
+import { CHAPTERS } from './levels.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -20,6 +23,8 @@ export class Renderer {
     this.shake = 0;
     this.time = 0;
     this.grain = null;
+    this.motes = [];
+    this.scraps = [];
   }
 
   addShake(amount) {
@@ -41,13 +46,43 @@ export class Renderer {
     }
     octx.putImageData(img, 0, 0);
     this.grain = off;
+    // Ambient drift: ink motes and torn paper scraps that float across the
+    // page forever, seeded so the same seed paints the same scene.
+    this.motes = [];
+    for (let i = 0; i < 42; i++) {
+      this.motes.push({
+        x: rng() * VIEW.width,
+        y: rng() * VIEW.height,
+        r: 1 + rng() * 2.4,
+        phase: rng() * Math.PI * 2,
+        speed: 6 + rng() * 14,
+        alpha: 0.1 + rng() * 0.22,
+      });
+    }
+    this.scraps = [];
+    for (let i = 0; i < 7; i++) {
+      this.scraps.push({
+        x: rng() * VIEW.width,
+        y: rng() * VIEW.height,
+        w: 26 + rng() * 40,
+        h: 16 + rng() * 22,
+        rot: (rng() - 0.5) * 0.9,
+        phase: rng() * Math.PI * 2,
+        speed: 4 + rng() * 8,
+      });
+    }
+  }
+
+  chapter(level) {
+    return CHAPTERS[level.chapter ?? 0] ?? CHAPTERS[0];
   }
 
   drawBackground(ctx, level) {
-    ctx.fillStyle = COLORS.paper;
+    const ch = this.chapter(level);
+    ctx.fillStyle = ch.paper;
     ctx.fillRect(0, 0, VIEW.width, VIEW.height);
     // Faint ruled paper lines.
-    ctx.strokeStyle = COLORS.paperLine;
+    ctx.strokeStyle = ch.paperLine;
     ctx.lineWidth = 1;
     for (let y = 90; y < VIEW.height; y += 90) {
       ctx.beginPath();
@@ -55,6 +90,32 @@ export class Renderer {
       ctx.lineTo(VIEW.width, y);
       ctx.stroke();
     }
+    // Drifting paper scraps, pale and slow.
+    ctx.save();
+    for (const s of this.scraps) {
+      const x = (s.x + Math.sin(this.time * 0.1 + s.phase) * 26 + VIEW.width) % VIEW.width;
+      const y = (s.y + this.time * s.speed * 0.2) % (VIEW.height + 60) - 30;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(s.rot + Math.sin(this.time * 0.15 + s.phase) * 0.08);
+      ctx.fillStyle = COLORS.paperWhite;
+      ctx.globalAlpha = 0.045;
+      ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+      ctx.restore();
+    }
+    ctx.restore();
+    // Drifting ink motes in the chapter's accent colour.
+    ctx.save();
+    ctx.fillStyle = ch.accent;
+    for (const m of this.motes) {
+      const x = (m.x + this.time * m.speed + Math.sin(this.time * 0.4 + m.phase) * 18 + VIEW.width) % VIEW.width;
+      const y = (m.y + Math.sin(this.time * 0.3 + m.phase) * 14 + VIEW.height) % VIEW.height;
+      ctx.globalAlpha = m.alpha * (0.7 + 0.3 * Math.sin(this.time * 0.8 + m.phase));
+      ctx.beginPath();
+      ctx.arc(x, y, m.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
     // Grain.
     if (this.grain) {
       const pattern = ctx.createPattern(this.grain, 'repeat');
@@ -70,11 +131,13 @@ export class Renderer {
       ctx.globalAlpha = 0.35;
       ctx.strokeStyle = '#bfe8ff';
       ctx.lineWidth = 2;
+      const drift = zone.gust ? this.time * 40 : 0;
       for (let i = 0; i < 4; i++) {
         const y = zone.y + 40 + i * 70 + Math.sin(this.time * 2 + i) * 8;
+        const x0 = zone.x + 20 + ((drift + i * 37) % 60) - 30;
         ctx.beginPath();
-        ctx.moveTo(zone.x + 20, y);
-        ctx.lineTo(zone.x + zone.w - 20, y);
+        ctx.moveTo(x0, y);
+        ctx.lineTo(Math.min(zone.x + zone.w - 20, x0 + 120), y);
         ctx.stroke();
       }
       ctx.restore();
@@ -82,11 +145,12 @@ export class Renderer {
   }
 
   drawPlatforms(ctx, level) {
+    const ch = this.chapter(level);
     for (const p of level.platforms) {
-      ctx.fillStyle = COLORS.platform;
+      ctx.fillStyle = ch.platform;
       roundRect(ctx, p.x, p.y, p.w, p.h, 8);
       ctx.fill();
-      ctx.fillStyle = COLORS.platformTop;
+      ctx.fillStyle = ch.platformTop;
       ctx.fillRect(p.x + 4, p.y, p.w - 8, 8);
       // Torn paper edge: little notches along the top.
       ctx.fillStyle = COLORS.paperWhite;
@@ -95,6 +159,35 @@ export class Renderer {
         ctx.fillRect(x, p.y + 2, 14, 3);
       }
       ctx.globalAlpha = 1;
+    }
+  }
+
+  drawCrumbles(ctx, hazards) {
+    for (const c of hazards.crumbles) {
+      if (c.gone) continue;
+      // The block cracks more as its clock runs down.
+      const crack = c.touched ? Math.min(1, c.t / 1.2) : 0;
+      ctx.save();
+      ctx.globalAlpha = 1 - crack * 0.35;
+      ctx.fillStyle = '#8d7fb5';
+      roundRect(ctx, c.x, c.y, c.w, c.h, 6);
+      ctx.fill();
+      ctx.fillStyle = '#b3a6d6';
+      ctx.fillRect(c.x + 4, c.y, c.w - 8, 6);
+      if (crack > 0) {
+        ctx.strokeStyle = '#241d33';
+        ctx.lineWidth = 2;
+        const n = 1 + Math.floor(crack * 4);
+        for (let i = 0; i < n; i++) {
+          const x = c.x + ((i + 0.5) * c.w) / n;
+          ctx.beginPath();
+          ctx.moveTo(x - 6, c.y + 4);
+          ctx.lineTo(x + 4, c.y + 12);
+          ctx.lineTo(x - 3, c.y + c.h - 4);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
     }
   }
 
@@ -122,8 +215,8 @@ export class Renderer {
     }
   }
 
-  drawSpikes(ctx, level) {
-    for (const s of level.spikes) {
+  drawSpikes(ctx, hazards) {
+    for (const s of hazards.spikes) {
       ctx.fillStyle = COLORS.danger;
       const count = Math.max(2, Math.floor(s.w / 22));
       for (let i = 0; i < count; i++) {
@@ -164,28 +257,87 @@ export class Renderer {
     });
   }
 
-  drawPortal(ctx, portal) {
+  drawKeys(ctx, keys, taken) {
+    keys.forEach((key, i) => {
+      if (taken[i]) return;
+      const bob = Math.sin(this.time * 3 + i * 1.7) * 5;
+      const pulse = 1 + Math.sin(this.time * 4 + i) * 0.1;
+      ctx.save();
+      ctx.translate(key.x, key.y + bob);
+      ctx.scale(pulse, pulse);
+      ctx.rotate(Math.sin(this.time * 2 + i) * 0.15);
+      ctx.strokeStyle = COLORS.yellow;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      // Bow.
+      ctx.beginPath();
+      ctx.arc(-8, 0, 8, 0, Math.PI * 2);
+      ctx.stroke();
+      // Stem and teeth.
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(20, 0);
+      ctx.moveTo(14, 0);
+      ctx.lineTo(14, 7);
+      ctx.moveTo(20, 0);
+      ctx.lineTo(20, 7);
+      ctx.stroke();
+      ctx.fillStyle = '#fff7cc';
+      ctx.beginPath();
+      ctx.arc(-8, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  drawPortal(ctx, portal, locked, keysLeft) {
     const pulse = 1 + Math.sin(this.time * 3) * 0.06;
     const cx = portal.x + 27;
     const cy = portal.y + 39;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(pulse, pulse);
-    ctx.strokeStyle = COLORS.portal;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 24, 36, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = COLORS.portal;
-    ctx.globalAlpha = 0.25 + Math.sin(this.time * 3) * 0.08;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 18, 30, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#eafff5';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('EXIT', 0, 4);
+    if (locked) {
+      // A shut door: grey ring, padlock, and how many keys are still out.
+      ctx.strokeStyle = '#8d84a3';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 24, 36, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#8d84a3';
+      ctx.globalAlpha = 0.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 18, 30, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = COLORS.yellow;
+      ctx.fillRect(-7, -4, 14, 12);
+      ctx.strokeStyle = COLORS.yellow;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, -6, 6, Math.PI, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#eafff5';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`LOCKED ${keysLeft}`, 0, 52);
+    } else {
+      ctx.strokeStyle = COLORS.portal;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 24, 36, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = COLORS.portal;
+      ctx.globalAlpha = 0.25 + Math.sin(this.time * 3) * 0.08;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 18, 30, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#eafff5';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('EXIT', 0, 4);
+    }
     ctx.restore();
   }
 
@@ -250,16 +402,16 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawMouseBrush(ctx, input, ink) {
+  drawMouseBrush(ctx, input, ink, brushColor) {
     if (ink <= 0) return;
     ctx.save();
     ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = COLORS.ink;
+    ctx.strokeStyle = brushColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(input.mouseX, input.mouseY, 12, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = COLORS.ink;
+    ctx.fillStyle = brushColor;
     ctx.beginPath();
     ctx.arc(input.mouseX, input.mouseY, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -279,16 +431,18 @@ export class Renderer {
     }
     this.drawBackground(ctx, game.level);
     this.drawPlatforms(ctx, game.level);
+    this.drawCrumbles(ctx, game.hazards);
     this.drawMovers(ctx, game.hazards);
     this.drawBouncePads(ctx, game.level);
-    this.drawSpikes(ctx, game.level);
+    this.drawSpikes(ctx, game.hazards);
     game.paint.draw(ctx);
     this.drawOrbs(ctx, game.level.orbs, game.orbsTaken);
-    this.drawPortal(ctx, game.level.portal);
+    this.drawKeys(ctx, game.level.keys, game.keysTaken);
+    this.drawPortal(ctx, game.level.portal, game.portalLocked(), game.keysLeft());
     this.drawErasers(ctx, game.hazards);
     game.particles.draw(ctx);
     this.drawPlayer(ctx, game.player);
-    if (game.screen === 'play') this.drawMouseBrush(ctx, game.input, game.ink);
+    if (game.screen === 'play') this.drawMouseBrush(ctx, game.input, game.ink, game.brushColor());
     ctx.restore();
   }
 }

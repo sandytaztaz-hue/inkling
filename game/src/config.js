@@ -22,6 +22,17 @@ export const INK = {
   startPerLevel: 100,
 };
 
+// Brush colours: each one paints a different kind of world. Cyan is the
+// plain road; amber bounces Pip back up; violet dries slowly, for long
+// crossings. Cost and dry time are part of the choice, not decoration.
+export const PAINT_COLORS = {
+  cyan: { color: '#2de2ff', dark: '#0e9fc4', cost: 0.055, drySeconds: 7, bounce: false, label: 'CYAN' },
+  amber: { color: '#ffb02e', dark: '#b97a00', cost: 0.07, drySeconds: 7, bounce: true, label: 'AMBER bounce' },
+  violet: { color: '#b46bff', dark: '#7a3fd1', cost: 0.08, drySeconds: 14, bounce: false, label: 'VIOLET slow-dry' },
+};
+
+export const BRUSH_KEYS = ['cyan', 'amber', 'violet'];
+
 export const PAINT = {
   drySeconds: 7,
   crackAt: 4,
@@ -49,4 +60,4 @@ export const COLORS = {
 };
 
 export const LIVES_PER_LEVEL = 3;
-export const LEVEL_COUNT = 10;
+export const LEVEL_COUNT = 20;

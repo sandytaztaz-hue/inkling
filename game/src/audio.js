@@ -82,6 +82,18 @@ export class SoundBank {
     this.tone(1320, 0.1, 'sine', 0.1, 1760);
   }
 
+  key() {
+    this.tone(1175, 0.12, 'triangle', 0.22, 1568);
+    this.tone(1568, 0.14, 'triangle', 0.16, 2093);
+  }
+
+  unlock() {
+    const notes = [659, 784, 988, 1319];
+    notes.forEach((freq, i) => {
+      setTimeout(() => this.tone(freq, 0.18, 'triangle', 0.2), i * 80);
+    });
+  }
+
   crumble() {
     this.noise(0.25, 0.16, 900);
   }

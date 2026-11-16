@@ -1,6 +1,10 @@
 // INKLING — hazards and movers: eraser blobs that patrol and eat paint,
-// sliding platforms, wind zones and spikes. Each one is a small state
-// machine updated once per step and drawn by render.js.
+// sliding platforms, wind zones (some breathe like gusts), spikes (some
+// patrol the floor) and crumble blocks that fall apart under Pip's feet.
+// Each one is a small state machine updated once per step and drawn by
+// render.js.
+
+export const CRUMBLE_SECONDS = 1.2;
 
 export class Hazards {
   constructor(level) {
@@ -32,11 +36,33 @@ export class Hazards {
       dy: 0,
     }));
     this.wind = level.wind ?? [];
-    this.spikes = level.spikes ?? [];
+    // Spikes keep their patrol state so they can walk the floor.
+    this.spikes = (level.spikes ?? []).map((s) => ({
+      x: s.x,
+      y: s.y,
+      w: s.w,
+      patrol: s.patrol ?? null,
+      dir: 1,
+    }));
+    // Crumble blocks: untouched until Pip stands on one, then the clock
+    // runs and the block falls apart.
+    this.crumbles = (level.crumbles ?? []).map((c) => ({
+      x: c.x,
+      y: c.y,
+      w: c.w,
+      h: c.h,
+      touched: false,
+      t: 0,
+      gone: false,
+      dx: 0,
+      dy: 0,
+    }));
     this.windPush = 0;
+    this.time = 0;
   }
 
-  update(dt, player, paint, onErase, onHurt) {
+  update(dt, player, paint, onErase, onHurt, onCrumble) {
+    this.time += dt;
     // Moving platforms slide between their endpoints and report their delta.
     for (const m of this.movers) {
       m.dx = 0;
@@ -57,6 +83,26 @@ export class Hazards {
         m.dy = step;
       }
     }
+    // Patrolling spikes walk the floor between their endpoints.
+    for (const s of this.spikes) {
+      if (!s.patrol) continue;
+      const next = s.x + s.patrol.speed * s.dir * dt;
+      if (next > s.patrol.to) s.dir = -1;
+      else if (next < s.patrol.from) s.dir = 1;
+      s.x += s.patrol.speed * s.dir * dt;
+    }
+    // Crumble blocks: the clock runs while Pip stands on one.
+    for (const c of this.crumbles) {
+      if (c.gone) continue;
+      if (player && player.groundPlatform === c) {
+        c.touched = true;
+        c.t += dt;
+        if (c.t >= CRUMBLE_SECONDS) {
+          c.gone = true;
+          if (onCrumble) onCrumble(c.x + c.w / 2, c.y);
+        }
+      }
+    }
     // Erasers patrol and eat any paint they touch.
     for (const e of this.erasers) {
       const pos = e.axis === 'x' ? e.x : e.y;
@@ -74,7 +120,8 @@ export class Hazards {
         onHurt('eraser');
       }
     }
-    // Wind: push Pip while the drop is inside a wind zone.
+    // Wind: push Pip while the drop is inside a wind zone. Gust zones
+    // breathe — their push rises and falls with a slow sine.
     this.windPush = 0;
     if (player) {
       for (const zone of this.wind) {
@@ -84,7 +131,8 @@ export class Hazards {
           player.y > zone.y &&
           player.y < zone.y + zone.h
         ) {
-          this.windPush = zone.push;
+          const strength = zone.gust ? 0.6 + 0.4 * Math.sin(this.time * 1.5) : 1;
+          this.windPush = zone.push * strength;
         }
       }
     }
